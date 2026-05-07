@@ -9,6 +9,7 @@ TagManager:
   - Background
   - NoMask
   - Ground
+  - Enemy
   layers:
   - Default
   - TransparentFX

@@ -55,12 +55,12 @@ public class GroundShadow : MonoBehaviour
         RaycastHit2D? groundHit = null;
         foreach (var h in hits)
         {
-            // 跳过角色自身及其子物体的碰撞体
-            if (h.collider != null && !h.collider.transform.IsChildOf(target))
-            {
-                groundHit = h;
-                break;
-            }
+            if (h.collider == null) continue;
+            if (h.collider.transform.IsChildOf(target)) continue;
+            if (h.collider.CompareTag("Enemy")) continue;
+            if (!h.collider.CompareTag("Ground")) continue;
+            groundHit = h;
+            break;
         }
 
         if (groundHit.HasValue)

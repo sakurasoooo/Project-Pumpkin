@@ -1,4 +1,5 @@
 using UnityEngine;
+using MoreMountains.Feedbacks;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 #endif
@@ -24,7 +25,7 @@ public class PlayerController : MonoBehaviour
 
     [Header("跳跃力度")]
     [Tooltip("玩家点击时的跳跃速度 (对应 Celeste JumpSpeed = -105)")]
-    public float jumpSpeed = 14f;
+    public float jumpSpeed = 18f;
     [Tooltip("自动蹦跳的力度")]
     public float autoSmallJumpForce = 5f;
     [Tooltip("最大连跳次数 (2 = 二连跳)")]
@@ -34,13 +35,15 @@ public class PlayerController : MonoBehaviour
     [Tooltip("离地后仍可跳跃的宽限时间 (Celeste = 0.1s)")]
     public float jumpGraceTime = 0.1f;
     [Tooltip("可变跳跃高度的持续时间 (Celeste = 0.2s)：按住跳跃键期间持续获得向上的力")]
-    public float varJumpTime = 0.2f;
+    public float varJumpTime = 0.22f;
     [Tooltip("跳跃输入缓冲时间：落地前这段时间内按跳跃，落地后自动触发")]
     public float jumpBufferTime = 0.1f;
+    [Tooltip("跳跃后多久内忽略 grounded 判定，防止再次被认成地面跳")]
+    public float jumpLockout = 0.08f;
 
     [Header("重力微调")]
     [Tooltip("半重力阈值速度 (Celeste = 40)：当上升速度小于此值且按住跳跃时，重力减半")]
-    public float halfGravThreshold = 4f;
+    public float halfGravThreshold = 6f;
 
     [Header("地面检测")]
     public Transform groundCheck;
@@ -50,6 +53,18 @@ public class PlayerController : MonoBehaviour
 
     [Header("自动蹦跳")]
     public float autoJumpInterval = 0.3f;
+
+    [Header("Feedback (Feel)")]
+    public MMF_Player jumpFeedbacks;
+    public MMF_Player landFeedbacks;
+    [Tooltip("玩家死亡反馈：Feel MMF_Player，可在编辑器里挂屏幕震动等效果")]
+    public MMF_Player deathFeedbacks;
+
+    [Header("Death Shake (Fallback)")]
+    [Tooltip("即使没有挂 Feel 反馈，也会触发的相机震动时长")]
+    public float deathShakeDuration = 0.6f;
+    [Tooltip("相机震动强度")]
+    public float deathShakeStrength = 0.9f;
 
     // =====================================================
     //  Private State
@@ -75,6 +90,9 @@ public class PlayerController : MonoBehaviour
 
     // 跳跃输入缓冲
     private float jumpBufferTimer = 0f;
+
+    // 跳跃锁定计时器：刚跳起的一小段时间忽略 grounded
+    private float jumpLockoutTimer = 0f;
 
     // 自动小跳计时器
     private float autoJumpTimer = 0f;
@@ -144,6 +162,12 @@ public class PlayerController : MonoBehaviour
         // 任一方法检测到地面即为着地
         isGrounded = rayGrounded || collisionGrounded;
 
+        // 刚跳起的锁定窗口期内强制视为离地，防止贴地瞬间被重新判定为 grounded
+        if (jumpLockoutTimer > 0f)
+        {
+            isGrounded = false;
+        }
+
         // 刚落地瞬间
         if (!wasGrounded && isGrounded)
         {
@@ -173,15 +197,30 @@ public class PlayerController : MonoBehaviour
     }
 
     // =====================================================
+    //  撞到敌人 → 游戏结束
+    // =====================================================
+    private void OnTriggerEnter2D(Collider2D col)
+    {
+        if (col != null && col.CompareTag("Enemy") && GameManager.Instance != null && !GameManager.Instance.IsGameOver)
+        {
+            // 屏幕震动反馈：优先用 Feel MMF，没有则回退到 CameraShake
+            if (deathFeedbacks != null) deathFeedbacks.PlayFeedbacks();
+            // ignoreTimeScale=true 让屏幕震动在 Time.timeScale=0 时仍能播放
+            CameraShake.Shake(deathShakeDuration, deathShakeStrength, true);
+
+            GameManager.Instance.GameOver();
+        }
+    }
+
+    // =====================================================
     //  计时器更新
     // =====================================================
     private void UpdateTimers()
     {
-        // 土狼时间：站在地上时持续刷新
+        // 土狼时间：站在地上时持续刷新；跳跃计数仅在 OnLanded() 时清零
         if (isGrounded)
         {
             jumpGraceTimer = jumpGraceTime;
-            currentJumpCount = 0; // 持续重置，而不是只在 landing 瞬间
         }
         else
         {
@@ -196,6 +235,10 @@ public class PlayerController : MonoBehaviour
         // 跳跃输入缓冲计时器
         if (jumpBufferTimer > 0)
             jumpBufferTimer -= Time.deltaTime;
+
+        // 跳跃锁定计时器
+        if (jumpLockoutTimer > 0)
+            jumpLockoutTimer -= Time.deltaTime;
     }
 
     // =====================================================
@@ -228,17 +271,12 @@ public class PlayerController : MonoBehaviour
             jumpBufferTimer = jumpBufferTime;
         }
 
-        // 尝试消费跳跃缓冲
-        if (jumpBufferTimer > 0)
+        // 尝试消费跳跃缓冲：统一用 currentJumpCount < maxJumps 判定
+        if (jumpBufferTimer > 0 && currentJumpCount < maxJumps)
         {
-            // 情况1：在地上，或在土狼时间内（算作第一次跳）
-            if (jumpGraceTimer > 0 && currentJumpCount == 0)
-            {
-                PerformJump();
-                jumpBufferTimer = 0;
-            }
-            // 情况2：空中二连跳（已经跳过一次，还有次数）
-            else if (currentJumpCount > 0 && currentJumpCount < maxJumps)
+            bool firstJumpFromGround = currentJumpCount == 0 && jumpGraceTimer > 0;
+            bool airJump = currentJumpCount > 0;
+            if (firstJumpFromGround || airJump)
             {
                 PerformJump();
                 jumpBufferTimer = 0;
@@ -251,26 +289,34 @@ public class PlayerController : MonoBehaviour
     // =====================================================
     private void PerformJump()
     {
+        bool isAirJump = currentJumpCount > 0;
         currentJumpCount++;
 
         // 清零土狼时间（Celeste: jumpGraceTimer = 0）
         jumpGraceTimer = 0;
 
-        // 覆盖垂直速度，确保每次跳跃高度一致
-        rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpSpeed);
+        // 首跳直接覆盖速度；空中二段跳在当前速度基础上叠加，确保上升阶段也能看到提升
+        float targetVy = jumpSpeed;
+        if (isAirJump)
+        {
+            targetVy = Mathf.Max(jumpSpeed, rb.linearVelocity.y + jumpSpeed * 0.7f);
+        }
+        rb.linearVelocity = new Vector2(rb.linearVelocity.x, targetVy);
 
         // 启动可变跳跃计时器
         varJumpTimer = varJumpTime;
-        varJumpSpeed = jumpSpeed;
+        varJumpSpeed = targetVy;
 
-        // 标记离地
+        // 标记离地，并启动锁定窗口
         isGrounded = false;
+        jumpLockoutTimer = jumpLockout;
         autoJumpTimer = 0f;
 
         // Squash & Stretch：起跳时竖向拉伸 (Celeste: Scale = 0.6, 1.4)
         ApplyScale(0.7f, 1.3f);
 
-        // TODO: 结合 Feel 插件触发屏幕缩放/挤压效果
+        if (jumpFeedbacks != null) jumpFeedbacks.PlayFeedbacks();
+
         // TODO: 触发跳跃扬尘特效
     }
 
@@ -345,6 +391,8 @@ public class PlayerController : MonoBehaviour
         float scaleX = Mathf.Lerp(1f, 1.4f, squish);
         float scaleY = Mathf.Lerp(1f, 0.6f, squish);
         ApplyScale(scaleX, scaleY);
+
+        if (landFeedbacks != null) landFeedbacks.PlayFeedbacks();
 
         // TODO: 播放落地音效
         // TODO: 生成落地扬尘粒子

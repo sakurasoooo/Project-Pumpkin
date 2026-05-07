@@ -1,5 +1,7 @@
 using UnityEngine;
 using System.Collections;
+using DG.Tweening;
+using MoreMountains.Feedbacks;
 
 /// <summary>
 /// 控制玩家的自动射击及武器状态切换（普通豌豆、豌豆机枪、玉米大炮）
@@ -12,6 +14,12 @@ public class PlayerShooter : MonoBehaviour
         PeaGatling,
         CornCannon
     }
+
+    [Header("Mouth Visuals")]
+    public SpriteRenderer mouthRenderer; // 嘴部的 SpriteRenderer
+    public Sprite normalMouthSprite;
+    public Sprite gatlingMouthSprite;
+    public Sprite cornMouthSprite;
 
     [Header("Weapon Status")]
     public WeaponType currentWeapon = WeaponType.NormalPea;
@@ -26,6 +34,11 @@ public class PlayerShooter : MonoBehaviour
     public float normalFireRate = 1.0f;
     public float gatlingFireRate = 0.15f; // 机枪高射速
     public float cornFireRate = 2.0f;     // 大炮低射速
+
+    [Header("Feedback")]
+    public MMF_Player shootFeedbacks;
+    public Vector3 muzzlePunch = new Vector3(0.3f, 0.1f, 0f);
+    public float muzzleDuration = 0.15f;
 
     private float fireTimer = 0f;
 
@@ -56,11 +69,18 @@ public class PlayerShooter : MonoBehaviour
         GameObject prefabToFire = GetCurrentPrefab();
         if (prefabToFire != null && firePoint != null)
         {
-            // TODO: 替换为从对象池 (ObjectPool) 获取子弹以优化性能
-            Instantiate(prefabToFire, firePoint.position, firePoint.rotation);
-            
-            // TODO: 播放开火音效与开火特效 (Muzzle Flash)
-            // TODO: 结合 Feel 插件触发开火轻微震屏
+            Debug.Log($"Shooting {currentWeapon} from {firePoint.position}");
+            GameObject projectileInstance = Instantiate(prefabToFire, firePoint.position, firePoint.rotation);
+            projectileInstance.SetActive(true);
+            Debug.Log($"Instantiated {projectileInstance.name}, Active: {projectileInstance.activeSelf}");
+
+            firePoint.DOComplete();
+            firePoint.DOPunchScale(muzzlePunch, muzzleDuration, 4, 0.5f);
+            if (shootFeedbacks != null) shootFeedbacks.PlayFeedbacks();
+        }
+        else
+        {
+            Debug.LogWarning("Cannot shoot: Prefab or FirePoint is null!");
         }
     }
 
@@ -84,16 +104,33 @@ public class PlayerShooter : MonoBehaviour
         StopAllCoroutines(); // 打断上一个武器的计时器
         currentWeapon = newWeapon;
         
-        // TODO: 切换嘴部外观美术资源 (普通嘴 -> 机枪嘴 -> 玉米嘴)
+        UpdateMouthVisual();
 
         StartCoroutine(WeaponTimerRoutine(duration));
+    }
+
+    private void UpdateMouthVisual()
+    {
+        if (mouthRenderer == null) return;
+
+        switch (currentWeapon)
+        {
+            case WeaponType.PeaGatling:
+                mouthRenderer.sprite = gatlingMouthSprite;
+                break;
+            case WeaponType.CornCannon:
+                mouthRenderer.sprite = cornMouthSprite;
+                break;
+            default:
+                mouthRenderer.sprite = normalMouthSprite;
+                break;
+        }
     }
 
     private IEnumerator WeaponTimerRoutine(float duration)
     {
         yield return new WaitForSeconds(duration);
         currentWeapon = WeaponType.NormalPea; // 持续时间到，恢复普通豌豆
-        
-        // TODO: 恢复嘴部外观美术资源
+        UpdateMouthVisual();
     }
 }
