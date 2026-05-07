@@ -15,10 +15,6 @@ public class Projectile : MonoBehaviour
     public float explosionRadius = 2.5f;
 
     [Header("Impact Feedback")]
-    public float shakeDuration = 0.12f;
-    public float shakeStrength = 0.18f;
-    public float explosiveShakeDuration = 0.3f;
-    public float explosiveShakeStrength = 0.5f;
     public float hitStopDuration = 0.04f;
     public float explosiveHitStopDuration = 0.08f;
 
@@ -43,44 +39,50 @@ public class Projectile : MonoBehaviour
             }
             else
             {
-                HitTarget(collision.gameObject);
-                CameraShake.Shake(shakeDuration, shakeStrength);
-                if (GameManager.Instance != null) GameManager.Instance.HitStop(hitStopDuration);
+                bool killed = HitTarget(collision.gameObject);
+                if (killed && GameManager.Instance != null)
+                    GameManager.Instance.HitStop(hitStopDuration);
 
-                // TODO: 替换为对象池回收
-                Destroy(gameObject);
+                if (killed)
+                {
+                    // TODO: 替换为对象池回收
+                    Destroy(gameObject);
+                }
             }
         }
     }
 
-    private void HitTarget(GameObject target)
+    private bool HitTarget(GameObject target)
     {
         Vector2 dir = transform.right;
         Enemy enemy = target.GetComponent<Enemy>();
         if (enemy != null)
         {
-            enemy.TakeHit(dir);
+            return enemy.TakeHit(dir);
         }
         else
         {
             // 兼容未挂 Enemy 脚本的占位敌人
             Destroy(target);
+            return true;
         }
     }
 
     private void Explode()
     {
+        bool damagedAny = false;
         Collider2D[] hitColliders = Physics2D.OverlapCircleAll(transform.position, explosionRadius);
         foreach (var hitCollider in hitColliders)
         {
             if (hitCollider.CompareTag("Enemy"))
             {
-                HitTarget(hitCollider.gameObject);
+                if (HitTarget(hitCollider.gameObject))
+                    damagedAny = true;
             }
         }
 
-        CameraShake.Shake(explosiveShakeDuration, explosiveShakeStrength);
-        if (GameManager.Instance != null) GameManager.Instance.HitStop(explosiveHitStopDuration);
+        if (damagedAny && GameManager.Instance != null)
+            GameManager.Instance.HitStop(explosiveHitStopDuration);
 
         // TODO: 播放巨大的爆炸特效
         // TODO: 替换为对象池回收
