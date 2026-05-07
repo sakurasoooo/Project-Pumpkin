@@ -16,10 +16,10 @@
   - 采用双图交替补位法实现，具体请参考设计文档：[MapScrolling_Design.md](MapScrolling_Design.md)。
 
 ### 2. 角色控制器与射击系统 (Priority: High)
-- **`PlayerController.cs`**：
+- [x] **`PlayerController.cs`**：
   - 实现持续的小幅度自动跳跃。
   - 监听屏幕点击（或者 InputSystem），实现角色的主动跳跃及二连跳逻辑。
-- **`PlayerShooter.cs`**：
+- [x] **`PlayerShooter.cs`**：
   - 实现固定频率的自动向前方射击机制。
   - 编写武器状态机或策略模式，以支持拾取道具后无缝切换为“玉米大炮”或“豌豆机枪”模式。
 
